@@ -122,6 +122,7 @@ Licensed under the MIT license.
 		// re-calculating them when the plot is re-rendered in a loop.
 
 		this._textCache = {};
+		this._textSizeCache = window.flotTextSizeCache = window.flotTextSizeCache || {};
 	}
 
 	// Resizes the canvas to the given dimensions.
@@ -368,13 +369,17 @@ Licensed under the MIT license.
 				element.addClass(font);
 			}
 
-			info = styleCache[text] = {
-				width: element.outerWidth(true),
-				height: element.outerHeight(true),
-				element: element,
-				positions: []
-			};
+      info = styleCache[text] = { element: element, positions: [] };
 
+      var size = this._textSizeCache[text];
+			if (size) {
+        info.width = size.width;
+        info.height = size.height;
+			} else {
+        info.width = element.outerWidth(true);
+        info.height = element.outerHeight(true);
+        this._textSizeCache[text] = { width: info.width, height: info.height };
+			}
 			element.detach();
 		}
 
@@ -1221,6 +1226,19 @@ Licensed under the MIT license.
             // give the hooks a chance to run
             for (i = 0; i < series.length; ++i) {
                 s = series[i];
+                points = s.datapoints.points;
+                ps = s.datapoints.pointsize;
+
+                // grafana
+                if (s.transform === 'negative-Y') {
+                  for (j = 0; j < points.length; j += ps) {
+                    if (points[j] == null)
+                        continue;
+
+                      val = points[j + 1];
+                      points[j + 1] = -val;
+                  }
+                }
 
                 executeHooks(hooks.processDatapoints, [ s, s.datapoints]);
             }
@@ -1416,7 +1434,8 @@ Licensed under the MIT license.
 
                 var info = surface.getTextInfo(layer, t.label, font, null, maxWidth);
 
-                labelWidth = Math.max(labelWidth, info.width);
+                /// Grafana fix, add +1 to label width
+                labelWidth = Math.max(labelWidth, info.width + 1);
                 labelHeight = Math.max(labelHeight, info.height);
             }
 
@@ -1728,6 +1747,8 @@ Licensed under the MIT license.
             axis.delta = delta;
             axis.tickDecimals = Math.max(0, maxDec != null ? maxDec : dec);
             axis.tickSize = opts.tickSize || size;
+            // grafana addition
+            axis.scaledDecimals = axis.tickDecimals - Math.floor(Math.log(axis.tickSize) / Math.LN10);
 
             // Time mode was moved to a plug-in in 0.8, and since so many people use it
             // we'll add an especially friendly reminder to make sure they included it.
@@ -2010,7 +2031,7 @@ Licensed under the MIT license.
                             ctx.lineTo(xrange.to + subPixel, yrange.to);
                         } else {
                             ctx.moveTo(xrange.from, yrange.to + subPixel);
-                            ctx.lineTo(xrange.to, yrange.to + subPixel);                            
+                            ctx.lineTo(xrange.to, yrange.to + subPixel);
                         }
                         ctx.stroke();
                     } else {
@@ -2525,9 +2546,9 @@ Licensed under the MIT license.
                 radius = series.points.radius,
                 symbol = series.points.symbol;
 
-            // If the user sets the line width to 0, we change it to a very 
+            // If the user sets the line width to 0, we change it to a very
             // small value. A line width of 0 seems to force the default of 1.
-            // Doing the conditional here allows the shadow setting to still be 
+            // Doing the conditional here allows the shadow setting to still be
             // optional even with a lineWidth of 0.
 
             if( lw == 0 )
